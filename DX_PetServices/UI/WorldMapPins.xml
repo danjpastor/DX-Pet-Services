@@ -1,0 +1,70 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Button name="DXPetServicesWorldMapPinTemplate" virtual="true" mixin="DXPetServicesWorldMapPinMixin" enableMouse="true">
+        <Size x="20" y="20"/>
+        <Layers>
+            <Layer level="BACKGROUND">
+                <Texture parentKey="Glow" file="Interface\Buttons\UI-ActionButton-Border" alphaMode="ADD">
+                    <Size x="24" y="24"/>
+                    <Anchors>
+                        <Anchor point="CENTER"/>
+                    </Anchors>
+                    <Color r="0.15" g="0.55" b="1.0" a="0.35"/>
+                </Texture>
+            </Layer>
+            <Layer level="ARTWORK">
+                <Texture parentKey="Icon">
+                    <Size x="20" y="20"/>
+                    <Anchors>
+                        <Anchor point="CENTER"/>
+                    </Anchors>
+                </Texture>
+            </Layer>
+            <Layer level="OVERLAY">
+                <Texture parentKey="WaypointIcon" hidden="true">
+                    <Size x="14" y="14"/>
+                    <Anchors>
+                        <Anchor point="TOPRIGHT" relativeKey="$parent.Icon" relativePoint="TOPRIGHT" x="5" y="5"/>
+                    </Anchors>
+                </Texture>
+            </Layer>
+        </Layers>
+        <Scripts>
+            <OnLoad method="OnLoad"/>
+            <OnClick method="OnClick"/>
+        </Scripts>
+    </Button>
+
+    <Button name="DXPetServicesWildPetMapPinTemplate" virtual="true" mixin="DXPetServicesWildPetMapPinMixin" enableMouse="true">
+        <Size x="16" y="16"/>
+        <Layers>
+            <Layer level="ARTWORK">
+                <Texture parentKey="Icon">
+                    <Size x="14" y="14"/>
+                    <Anchors>
+                        <Anchor point="CENTER"/>
+                    </Anchors>
+                </Texture>
+            </Layer>
+            <Layer level="OVERLAY">
+                <Texture parentKey="Border" atlas="Neutraltrait-border-selected">
+                    <Size x="22" y="22"/>
+                    <Anchors>
+                        <Anchor point="CENTER"/>
+                    </Anchors>
+                </Texture>
+            </Layer>
+        </Layers>
+        <Scripts>
+            <OnLoad method="OnLoad"/>
+            <OnClick method="OnClick"/>
+        </Scripts>
+    </Button>
+
+    <Frame name="DXPetServicesPetTrackerMapTabTemplate" inherits="LargeSideTabButtonTemplate" virtual="true">
+        <KeyValues>
+            <KeyValue key="activeAtlas" value="WildBattlePetCapturable" type="string"/>
+            <KeyValue key="inactiveAtlas" value="WildBattlePetCapturable" type="string"/>
+            <KeyValue key="tooltipText" value="Zone Pet Tracker" type="string"/>
+        </KeyValues>
+    </Frame>
+</Ui>

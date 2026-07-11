@@ -1,0 +1,26 @@
+DX Pet Services dense location data notice
+
+Runtime data file:
+  Data/DXDenseLocations.lua
+
+Source:
+  DX Pet Services-owned location dataset supplied by the project owner.
+
+Runtime format:
+  Per-map packed payloads using delta encoding, variable-length integers,
+  printable encoding, map-specific scrambling, and integrity checks. Maps are
+  decoded only when requested by the Pet Tracker and cached for the session.
+
+Purpose:
+  Supplies map/species relationships and dense wild-pet spawn coordinates to
+  the DX Pet Services Pet Tracker feature.
+
+The shipped packing is intended to discourage casual copying. It is not
+cryptographic secrecy because addon clients necessarily contain the decoder.
+
+The term "Pet Tracker" elsewhere in the addon refers exclusively to DX Pet
+Services' own map collection and wild-pet tracking feature.
+
+Developer workflow
+------------------
+The readable master and Studio auto-publisher are maintained in a separate private developer workspace. Public addon archives must contain only the packed runtime asset and must not include Studio exports, `.bak` files, or packing tools.
