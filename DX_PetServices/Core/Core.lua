@@ -188,6 +188,18 @@ SlashCmdList.DXPETS = function(message)
         return
     end
 
+    if message == "nearbydebug" or message == "nearby debug" then
+        local tracker = ns:GetModule("PetTracker")
+        if tracker and tracker.GetNearbyDebugLines then
+            for _, line in ipairs(tracker:GetNearbyDebugLines()) do
+                ns:Print(line)
+            end
+        else
+            ns:Print("Nearby debug is not available.")
+        end
+        return
+    end
+
     if message == "autosummon on" or message == "autosummon favorites" or message == "autosummon favorite" then
         local autoSummon = ns:GetModule("AutoSummon")
         if autoSummon then
@@ -233,5 +245,5 @@ SlashCmdList.DXPETS = function(message)
         tonumber(staticPetDB.npcCount) or 0
     ) or "ATT source DB unavailable"
     ns:Print(string.format("v%s | Character favorites: %d | Auto Summon: %s | %s", ns.version, favoriteCount, autoSummonMode, staticSourceText))
-    ns:Print("Commands: /dxpets, /dxpets tracker, /dxpets trackerdebug, /dxpets settings, /dxpets mode [battle|collector], /dxpets autosummon [on|off|random], /dxpets resetfilter, /dxpets debug")
+    ns:Print("Commands: /dxpets, /dxpets tracker, /dxpets trackerdebug, /dxpets nearbydebug, /dxpets settings, /dxpets mode [battle|collector], /dxpets autosummon [on|off|random], /dxpets resetfilter, /dxpets debug")
 end

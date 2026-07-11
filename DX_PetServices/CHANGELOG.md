@@ -1,3 +1,14 @@
+# 0.5.5
+
+- Added Pet Tracker portrait display modes: every location, clustered nearby locations, and one portrait per species.
+- Added map portrait size and opacity controls.
+- Holding Shift temporarily reveals every saved location.
+- Added nearby uncollected wild-pet alerts using nameplate, target, focus, minimap/world-map signal, and known-spawn proximity detection.
+- Cached pet-name and pet-creature lookup tables so nearby alerts react to Blizzard events without per-frame scanning.
+- Cached missing spawn points per map/collection state so proximity checks avoid repeated dense-location decoding.
+- Added a movable sample alert preview plus fade-in, fade-out, detection-radius, and startup-delay settings.
+- Alerts show the pet icon, pet name, and Found Nearby message, play an optional sound, and fade away after appearing.
+
 ## 0.5.4 — Pet Tracker Map Visibility Options
 
 - Added **Hide Captured Pet Locations**, enabled by default. Once at least one pet of a species is owned, all Pet Tracker world-map portraits for that species are hidden.
@@ -719,4 +730,3 @@
 - Integrated the single-page NPC location grabber directly into the editor.
 - Added import support for existing `pet_locations.json` extractor output with explicit source-map to Blizzard UiMapID mapping.
 - No in-game Pet Tracker runtime or UI behavior changed.
-

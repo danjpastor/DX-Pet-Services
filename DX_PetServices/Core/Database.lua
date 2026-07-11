@@ -3,7 +3,7 @@ local addonName, ns = ...
 local Database = {}
 ns.Database = Database
 
-local ACCOUNT_SCHEMA = 11
+local ACCOUNT_SCHEMA = 14
 local CHARACTER_SCHEMA = 5
 
 local ACCOUNT_DEFAULTS = {
@@ -16,6 +16,19 @@ local ACCOUNT_DEFAULTS = {
         petTrackerMapIcons = true,
         petTrackerHideCapturedPins = true,
         petTrackerOnlyWhenPanelOpen = false,
+        petTrackerPinMode = "ALL",
+        petTrackerPinSize = 100,
+        petTrackerPinOpacity = 100,
+        petTrackerNearbyAlerts = true,
+        petTrackerNearbyAlertSound = true,
+        petTrackerNearbyFadeInTime = 0.2,
+        petTrackerNearbyFadeOutTime = 1.5,
+        petTrackerNearbyDetectionRadius = 2.5,
+        petTrackerNearbyStartupDelay = 8,
+        petTrackerNearbyAlertPoint = "CENTER",
+        petTrackerNearbyAlertRelativePoint = "CENTER",
+        petTrackerNearbyAlertX = 0,
+        petTrackerNearbyAlertY = 170,
         petTrackerObjectiveTracker = false,
         dungeonTooltipInfo = true,
         bossIcons = true,
@@ -46,6 +59,17 @@ local CHARACTER_DEFAULTS = {
 local VALID_FILTER_MODES = { ALL = true, EXACT = true }
 local VALID_VIEW_MODES = { BATTLE = true, COLLECTOR = true }
 local VALID_AUTO_SUMMON_SOURCES = { FAVORITES = true, ALL = true }
+local VALID_ANCHOR_POINTS = {
+    TOPLEFT = true,
+    TOP = true,
+    TOPRIGHT = true,
+    LEFT = true,
+    CENTER = true,
+    RIGHT = true,
+    BOTTOMLEFT = true,
+    BOTTOM = true,
+    BOTTOMRIGHT = true,
+}
 
 local BOOLEAN_SETTINGS = {
     "npcPetDisplays",
@@ -53,6 +77,8 @@ local BOOLEAN_SETTINGS = {
     "petTrackerMapIcons",
     "petTrackerHideCapturedPins",
     "petTrackerOnlyWhenPanelOpen",
+    "petTrackerNearbyAlerts",
+    "petTrackerNearbyAlertSound",
     "petTrackerObjectiveTracker",
     "dungeonTooltipInfo",
     "bossIcons",
@@ -149,6 +175,31 @@ function Database:Initialize()
             DXPetServicesDB.settings[key] = ACCOUNT_DEFAULTS.settings[key]
         end
     end
+
+    local validPinModes = { ALL = true, CLUSTER = true, SPECIES = true }
+    if not validPinModes[DXPetServicesDB.settings.petTrackerPinMode] then
+        DXPetServicesDB.settings.petTrackerPinMode = "ALL"
+    end
+    local pinSize = tonumber(DXPetServicesDB.settings.petTrackerPinSize) or 100
+    DXPetServicesDB.settings.petTrackerPinSize = math.max(60, math.min(160, math.floor(pinSize + 0.5)))
+    local pinOpacity = tonumber(DXPetServicesDB.settings.petTrackerPinOpacity) or 100
+    DXPetServicesDB.settings.petTrackerPinOpacity = math.max(25, math.min(100, math.floor(pinOpacity + 0.5)))
+    local fadeInTime = tonumber(DXPetServicesDB.settings.petTrackerNearbyFadeInTime) or 0.2
+    DXPetServicesDB.settings.petTrackerNearbyFadeInTime = math.max(0, math.min(2, math.floor((fadeInTime / 0.1) + 0.5) * 0.1))
+    local fadeOutTime = tonumber(DXPetServicesDB.settings.petTrackerNearbyFadeOutTime) or 1.5
+    DXPetServicesDB.settings.petTrackerNearbyFadeOutTime = math.max(0.2, math.min(5, math.floor((fadeOutTime / 0.1) + 0.5) * 0.1))
+    local detectionRadius = tonumber(DXPetServicesDB.settings.petTrackerNearbyDetectionRadius) or 2.5
+    DXPetServicesDB.settings.petTrackerNearbyDetectionRadius = math.max(0.5, math.min(8, math.floor((detectionRadius / 0.5) + 0.5) * 0.5))
+    local startupDelay = tonumber(DXPetServicesDB.settings.petTrackerNearbyStartupDelay) or 8
+    DXPetServicesDB.settings.petTrackerNearbyStartupDelay = math.max(0, math.min(30, math.floor(startupDelay + 0.5)))
+    if not VALID_ANCHOR_POINTS[DXPetServicesDB.settings.petTrackerNearbyAlertPoint] then
+        DXPetServicesDB.settings.petTrackerNearbyAlertPoint = "CENTER"
+    end
+    if not VALID_ANCHOR_POINTS[DXPetServicesDB.settings.petTrackerNearbyAlertRelativePoint] then
+        DXPetServicesDB.settings.petTrackerNearbyAlertRelativePoint = "CENTER"
+    end
+    DXPetServicesDB.settings.petTrackerNearbyAlertX = tonumber(DXPetServicesDB.settings.petTrackerNearbyAlertX) or 0
+    DXPetServicesDB.settings.petTrackerNearbyAlertY = tonumber(DXPetServicesDB.settings.petTrackerNearbyAlertY) or 170
 
     ns.db = DXPetServicesDB
     ns.charDB = DXPetServicesCharDB

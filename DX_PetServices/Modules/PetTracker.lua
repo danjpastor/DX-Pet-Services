@@ -15,6 +15,8 @@ local PetTracker = {
     objectiveCollapsed = false,
     mapCanvasHooked = false,
     mapCanvasFrames = {},
+    nearbyAlertSeen = {},
+    creatureSpecies = {},
 }
 ns:RegisterModule("PetTracker", PetTracker)
 
@@ -1135,6 +1137,70 @@ function PetTracker:IsMapPanelOpen()
         and self.questLogFrame.displayMode == TRACKER_DISPLAY_MODE
 end
 
+
+local function BuildDisplayPoints(mode, speciesID, sourceMapID, mapID, row)
+    local converted = {}
+    for pointIndex = 2, #row do
+        local point = row[pointIndex]
+        local x = type(point) == "table" and SafeNumber(point[1]) or nil
+        local y = type(point) == "table" and SafeNumber(point[2]) or nil
+        if x and y then
+            local displayX, displayY = ConvertMapPoint(sourceMapID, mapID, x, y)
+            displayX, displayY = SafeNumber(displayX), SafeNumber(displayY)
+            if displayX and displayY and displayX >= 0 and displayX <= 1 and displayY >= 0 and displayY <= 1 then
+                converted[#converted + 1] = { x = displayX, y = displayY, waypointX = x, waypointY = y, count = 1 }
+            end
+        end
+    end
+    if mode == "ALL" or #converted <= 1 then return converted end
+    if mode == "SPECIES" then
+        local sx, sy = 0, 0
+        for _, point in ipairs(converted) do sx, sy = sx + point.x, sy + point.y end
+        local centerX, centerY = sx / #converted, sy / #converted
+        local closest, distance
+        for _, point in ipairs(converted) do
+            local d = (point.x-centerX)^2 + (point.y-centerY)^2
+            if not distance or d < distance then closest, distance = point, d end
+        end
+        closest.count = #converted
+        return { closest }
+    end
+    local threshold = 0.022
+    local clusters = {}
+    for _, point in ipairs(converted) do
+        local chosen
+        for _, cluster in ipairs(clusters) do
+            local dx, dy = point.x-cluster.x, point.y-cluster.y
+            if dx*dx + dy*dy <= threshold*threshold then chosen = cluster break end
+        end
+        if chosen then
+            chosen.count = chosen.count + 1
+            chosen.x = chosen.x + (point.x-chosen.x)/chosen.count
+            chosen.y = chosen.y + (point.y-chosen.y)/chosen.count
+        else
+            clusters[#clusters + 1] = point
+        end
+    end
+    return clusters
+end
+
+function PetTracker:ApplyMapPinPresentation(pin, count)
+    local settings = ns.db and ns.db.settings or {}
+    local factor = (tonumber(settings.petTrackerPinSize) or 100) / 100
+    local opacity = (tonumber(settings.petTrackerPinOpacity) or 100) / 100
+    pin:SetSize(16 * factor, 16 * factor)
+    pin.Icon:SetSize(14 * factor, 14 * factor)
+    pin.Icon:SetAlpha(opacity)
+    pin.Border:SetSize(22 * factor, 22 * factor)
+    pin.Border:SetAlpha(opacity)
+    if not pin.Count then
+        pin.Count = pin:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        pin.Count:SetPoint("BOTTOMRIGHT", 5, -3)
+        pin.Count:SetTextColor(1, 0.82, 0)
+    end
+    pin.Count:SetText(count and count > 1 and tostring(count) or "")
+end
+
 function PetTracker:DrawPetTrackerMapCanvas(frame)
     local state = self:InitPetTrackerMapCanvas(frame)
     if not state then
@@ -1185,52 +1251,33 @@ function PetTracker:DrawPetTrackerMapCanvas(frame)
     local speciesCount = 0
     local coordinateCount = 0
     local hideCaptured = settings.petTrackerHideCapturedPins ~= false
+    local pinMode = IsShiftKeyDown() and "ALL" or (settings.petTrackerPinMode or "ALL")
 
-    -- Only actual location points become map icons. Species
-    -- with no precise coordinates remain in the zone tracker list instead of
-    -- receiving invented map positions.
     for _, row in ipairs(drawRows) do
         local speciesID = SafeNumber(row[1])
         local isCaptured = speciesID and hideCaptured and self:GetCollectionInfo(speciesID).count > 0
-        if speciesID and not isCaptured then
-            speciesCount = speciesCount + 1
-        end
-
+        if speciesID and not isCaptured then speciesCount = speciesCount + 1 end
         if speciesID and not isCaptured and type(row[2]) == "table" then
-            for pointIndex = 2, #row do
-                local point = row[pointIndex]
-                local x = type(point) == "table" and SafeNumber(point[1]) or nil
-                local y = type(point) == "table" and SafeNumber(point[2]) or nil
-                if x and y then
-                    coordinateCount = coordinateCount + 1
-                end
-
-                if x and y then
-                    local displayX, displayY = ConvertMapPoint(sourceMapID, mapID, x, y)
-                    displayX, displayY = SafeNumber(displayX), SafeNumber(displayY)
-                    if displayX and displayY and displayX >= 0 and displayX <= 1 and displayY >= 0 and displayY <= 1 then
-                        activeCount = activeCount + 1
-                        local pin = self:GetPetTrackerMapPin(frame, activeCount)
-                        if pin then
-                            local species = GetSpeciesInfo(speciesID)
-                            pin.data = {
-                                speciesID = speciesID,
-                                mapID = sourceMapID,
-                                x = displayX,
-                                y = displayY,
-                                waypointX = x,
-                                waypointY = y,
-                                rosterOnly = false,
-                            }
-                            pin.Icon:SetTexture(species.icon)
-                            pin.Icon:SetDesaturated(false)
-                            pin.Icon:SetAlpha(1)
-                            pin.Border:SetVertexColor(1, 1, 1, 1)
-                            pin.canvasX = canvasWidth * displayX
-                            pin.canvasY = -canvasHeight * displayY
-                            pin:Show()
-                        end
-                    end
+            local points = BuildDisplayPoints(pinMode, speciesID, sourceMapID, mapID, row)
+            coordinateCount = coordinateCount + math.max(0, #row - 1)
+            for _, point in ipairs(points) do
+                activeCount = activeCount + 1
+                local pin = self:GetPetTrackerMapPin(frame, activeCount)
+                if pin then
+                    local species = GetSpeciesInfo(speciesID)
+                    pin.data = {
+                        speciesID = speciesID, mapID = sourceMapID,
+                        x = point.x, y = point.y,
+                        waypointX = point.waypointX, waypointY = point.waypointY,
+                        rosterOnly = false, clusterCount = point.count,
+                    }
+                    pin.Icon:SetTexture(species.icon)
+                    pin.Icon:SetDesaturated(false)
+                    pin.Border:SetVertexColor(1, 1, 1, 1)
+                    self:ApplyMapPinPresentation(pin, point.count)
+                    pin.canvasX = canvasWidth * point.x
+                    pin.canvasY = -canvasHeight * point.y
+                    pin:Show()
                 end
             end
         end
@@ -2573,6 +2620,989 @@ function PetTracker:RefreshObjectiveTracker()
     self:LayoutObjectiveTracker()
 end
 
+
+-- Nearby uncollected-pet alerts. This mirrors RareScanner's detection shape:
+-- react to Blizzard-exposed units and vignette events, then filter those
+-- signals through the wild-pet species database.
+local NEARBY_ALERT_COOLDOWN = 300
+local NEARBY_VIGNETTE_SCAN_COOLDOWN = 10
+local NEARBY_NAMEPLATE_MAX = 40
+local NEARBY_NAMEPLATE_TEXT_DEPTH = 3
+local NEARBY_NAMEPLATE_TEXT_LIMIT = 12
+local NEARBY_PASSIVE_SCAN_INTERVAL = 1.5
+local NEARBY_DEFAULT_FADE_IN_TIME = 0.2
+local NEARBY_DEFAULT_FADE_OUT_TIME = 1.5
+local NEARBY_DEFAULT_DETECTION_RADIUS = 0.025
+local NEARBY_DEFAULT_STARTUP_DELAY = 8
+local NEARBY_UNIT_TOKENS = { "target", "focus" }
+
+local function IsSecretValue(value)
+    return value ~= nil and type(issecretvalue) == "function" and issecretvalue(value)
+end
+
+local function ReadGUID(value)
+    if IsSecretValue(value) or type(value) ~= "string" then
+        return nil
+    end
+    return value
+end
+
+local function ParseCreatureIDFromGUID(guid)
+    guid = ReadGUID(guid)
+    if not guid then
+        return nil
+    end
+
+    local guidType = guid:match("^([^-]+)-")
+    if guidType ~= "Creature" and guidType ~= "Vehicle" then
+        return nil
+    end
+
+    local _, _, _, _, _, creatureID = strsplit("-", guid)
+    return tonumber(creatureID)
+end
+
+local function CreatureIDFromUnit(unit)
+    if not unit or not UnitExists(unit) then
+        return nil
+    end
+    return ParseCreatureIDFromGUID(UnitGUID(unit))
+end
+
+local function GetUnitNameSafe(unit)
+    if not unit or not UnitExists(unit) then
+        return nil
+    end
+    local name = UnitName(unit)
+    if IsSecretValue(name) or type(name) ~= "string" or name == "" then
+        return nil
+    end
+    return name
+end
+
+local function GetUnitBattlePetSpeciesID(unit)
+    if type(UnitBattlePetSpeciesID) ~= "function" then
+        return nil
+    end
+
+    local ok, rawSpeciesID = pcall(UnitBattlePetSpeciesID, unit)
+    rawSpeciesID = ok and not IsSecretValue(rawSpeciesID) and tonumber(rawSpeciesID) or nil
+    return rawSpeciesID and rawSpeciesID > 0 and rawSpeciesID or nil
+end
+
+local function ReadUnitBoolean(api, unit)
+    if type(api) ~= "function" then
+        return nil
+    end
+
+    local ok, value = pcall(api, unit)
+    if not ok or IsSecretValue(value) then
+        return nil
+    end
+    return value == true
+end
+
+local function IsInspectionSource(source)
+    return source == "target" or source == "focus"
+end
+
+local function IsRejectedBattlePetUnit(unit, source)
+    if ReadUnitBoolean(UnitIsBattlePetCompanion, unit) == true then
+        return true
+    end
+
+    local isWildBattlePet = ReadUnitBoolean(UnitIsWildBattlePet, unit)
+    return isWildBattlePet == false and IsInspectionSource(source)
+end
+
+local function AddSpeciesCandidate(index, key, speciesID)
+    if not key or not speciesID then
+        return
+    end
+
+    local candidates = index[key]
+    if not candidates then
+        candidates = {}
+        index[key] = candidates
+    end
+
+    for _, existingID in ipairs(candidates) do
+        if existingID == speciesID then
+            return
+        end
+    end
+    candidates[#candidates + 1] = speciesID
+end
+
+local function AddFrameText(frame, texts, depth)
+    if not frame or not frame.GetRegions or #texts >= NEARBY_NAMEPLATE_TEXT_LIMIT then
+        return
+    end
+
+    for index = 1, select("#", frame:GetRegions()) do
+        local region = select(index, frame:GetRegions())
+        if region and region.GetObjectType and region:GetObjectType() == "FontString" and region.GetText then
+            local text = region:GetText()
+            if type(text) == "string" and text ~= "" and not IsSecretValue(text) then
+                texts[#texts + 1] = text
+                if #texts >= NEARBY_NAMEPLATE_TEXT_LIMIT then
+                    return
+                end
+            end
+        end
+    end
+
+    if depth >= NEARBY_NAMEPLATE_TEXT_DEPTH or not frame.GetChildren then
+        return
+    end
+
+    for index = 1, select("#", frame:GetChildren()) do
+        AddFrameText(select(index, frame:GetChildren()), texts, depth + 1)
+        if #texts >= NEARBY_NAMEPLATE_TEXT_LIMIT then
+            return
+        end
+    end
+end
+
+local function GetPlayerMapPosition(mapID)
+    if not mapID or not C_Map or type(C_Map.GetPlayerMapPosition) ~= "function" then
+        return nil, nil
+    end
+
+    local position = C_Map.GetPlayerMapPosition(mapID, "player")
+    local x, y = ReadVectorXY(position)
+    if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 then
+        return x, y
+    end
+    return nil, nil
+end
+
+local function ReadNearbySetting(key, defaultValue, minValue, maxValue)
+    local settings = ns.db and ns.db.settings
+    local value = settings and SafeNumber(settings[key]) or nil
+    value = value or defaultValue
+    if minValue and value < minValue then
+        value = minValue
+    end
+    if maxValue and value > maxValue then
+        value = maxValue
+    end
+    return value
+end
+
+local function GetNearbyFadeInTime()
+    return ReadNearbySetting("petTrackerNearbyFadeInTime", NEARBY_DEFAULT_FADE_IN_TIME, 0, 2)
+end
+
+local function GetNearbyFadeOutTime()
+    return ReadNearbySetting("petTrackerNearbyFadeOutTime", NEARBY_DEFAULT_FADE_OUT_TIME, 0.2, 5)
+end
+
+local function GetNearbyDetectionRadius()
+    return ReadNearbySetting("petTrackerNearbyDetectionRadius", NEARBY_DEFAULT_DETECTION_RADIUS * 100, 0.5, 8) / 100
+end
+
+local function GetNearbyStartupDelay()
+    return ReadNearbySetting("petTrackerNearbyStartupDelay", NEARBY_DEFAULT_STARTUP_DELAY, 0, 30)
+end
+
+local VALID_ALERT_ANCHOR_POINTS = {
+    TOPLEFT = true,
+    TOP = true,
+    TOPRIGHT = true,
+    LEFT = true,
+    CENTER = true,
+    RIGHT = true,
+    BOTTOMLEFT = true,
+    BOTTOM = true,
+    BOTTOMRIGHT = true,
+}
+
+local function GetSavedNearbyAlertAnchor()
+    local settings = ns.db and ns.db.settings or {}
+    local point = settings.petTrackerNearbyAlertPoint
+    local relativePoint = settings.petTrackerNearbyAlertRelativePoint
+
+    if not VALID_ALERT_ANCHOR_POINTS[point] then
+        point = "CENTER"
+    end
+    if not VALID_ALERT_ANCHOR_POINTS[relativePoint] then
+        relativePoint = point
+    end
+
+    return point, UIParent, relativePoint, SafeNumber(settings.petTrackerNearbyAlertX) or 0, SafeNumber(settings.petTrackerNearbyAlertY) or 170
+end
+
+local function GetNearbySpawnRows(mapID)
+    local rows, sourceMapID = GetMapRowsWithSource(mapID)
+    if not rows then
+        return nil, nil, nil, 0
+    end
+
+    local denseRows, densePointCount = GetBundledDenseLocationRows(sourceMapID, rows)
+    if denseRows then
+        return denseRows, sourceMapID, "dx-dense", densePointCount
+    end
+    return rows, sourceMapID, "att", 0
+end
+
+local function CaptureNearbyAlertAnchor(frame, save)
+    local point, relativeTo, relativePoint, x, y = frame:GetPoint(1)
+    frame.nearbyBasePoint = point or frame.nearbyBasePoint or "CENTER"
+    frame.nearbyBaseRelativeTo = relativeTo or frame.nearbyBaseRelativeTo or UIParent
+    frame.nearbyBaseRelativePoint = relativePoint or frame.nearbyBaseRelativePoint or frame.nearbyBasePoint
+    frame.nearbyBaseX = x or frame.nearbyBaseX or 0
+    frame.nearbyBaseY = y or frame.nearbyBaseY or 0
+
+    if save and ns.db and ns.db.settings then
+        ns.db.settings.petTrackerNearbyAlertPoint = frame.nearbyBasePoint
+        ns.db.settings.petTrackerNearbyAlertRelativePoint = frame.nearbyBaseRelativePoint
+        ns.db.settings.petTrackerNearbyAlertX = frame.nearbyBaseX
+        ns.db.settings.petTrackerNearbyAlertY = frame.nearbyBaseY
+    end
+end
+
+local function PositionNearbyAlert(frame, yOffset)
+    frame:ClearAllPoints()
+    frame:SetPoint(
+        frame.nearbyBasePoint or "CENTER",
+        frame.nearbyBaseRelativeTo or UIParent,
+        frame.nearbyBaseRelativePoint or frame.nearbyBasePoint or "CENTER",
+        frame.nearbyBaseX or 0,
+        (frame.nearbyBaseY or 0) + (yOffset or 0)
+    )
+end
+
+local function RestoreNearbyAlertAnchor(frame)
+    frame.nearbyBasePoint, frame.nearbyBaseRelativeTo, frame.nearbyBaseRelativePoint, frame.nearbyBaseX, frame.nearbyBaseY = GetSavedNearbyAlertAnchor()
+    PositionNearbyAlert(frame, 0)
+end
+
+local function CreateNearbyAlertIcon(parent)
+    local holder = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    holder:SetSize(38, 38)
+    holder:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 9,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    holder:SetBackdropColor(0, 0, 0, 0.82)
+    holder:SetBackdropBorderColor(1, 0.82, 0.18, 0.95)
+
+    local icon = holder:CreateTexture(nil, "ARTWORK")
+    icon:SetPoint("TOPLEFT", 3, -3)
+    icon:SetPoint("BOTTOMRIGHT", -3, 3)
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    DisablePixelSnapping(icon)
+
+    local shine = holder:CreateTexture(nil, "OVERLAY")
+    shine:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    shine:SetBlendMode("ADD")
+    shine:SetAlpha(0.22)
+    shine:SetPoint("TOPLEFT", -6, 6)
+    shine:SetPoint("BOTTOMRIGHT", 6, -6)
+    shine:SetVertexColor(1, 0.82, 0.18, 1)
+
+    holder.Icon = icon
+    holder.Shine = shine
+    return holder, icon
+end
+
+local function GetNearbyAlertYOffset(elapsed, introTime, holdTime, fadeTime, travel)
+    if introTime > 0 and elapsed < introTime then
+        return -travel + (travel * (elapsed / introTime))
+    end
+    if fadeTime > 0 and elapsed > holdTime then
+        return -(travel * math.min((elapsed - holdTime) / fadeTime, 1))
+    end
+    return 0
+end
+
+function PetTracker:CanRunNearbyDetection()
+    local settings = ns.db and ns.db.settings
+    if not settings or settings.petTrackerNearbyAlerts == false then
+        return false
+    end
+    return not self.nearbyAlertsEnabledAt or GetTime() >= self.nearbyAlertsEnabledAt
+end
+
+function PetTracker:ResetNearbyStartupDelay()
+    self.nearbyAlertsEnabledAt = GetTime() + GetNearbyStartupDelay()
+end
+
+function PetTracker:GetNearbySpawnPointCache(mapID)
+    mapID = tonumber(mapID)
+    if not mapID then
+        return nil
+    end
+
+    self.nearbySpawnPointCache = self.nearbySpawnPointCache or {}
+    local collectionVersion = self.nearbyCollectionVersion or 0
+    local cached = self.nearbySpawnPointCache[mapID]
+    if cached and cached.collectionVersion == collectionVersion then
+        return cached
+    end
+
+    local rows, sourceMapID, rowSource, densePoints = GetNearbySpawnRows(mapID)
+    cached = {
+        collectionVersion = collectionVersion,
+        points = {},
+        rowCount = type(rows) == "table" and #rows or 0,
+        sourceMapID = sourceMapID,
+        rowSource = rowSource,
+        densePoints = densePoints or 0,
+    }
+
+    if rows then
+        for _, row in ipairs(rows) do
+            local speciesID = SafeNumber(row[1])
+            if speciesID and self:GetCollectionInfo(speciesID).count <= 0 then
+                for pointIndex = 2, #row do
+                    local point = row[pointIndex]
+                    local x = type(point) == "table" and SafeNumber(point[1]) or nil
+                    local y = type(point) == "table" and SafeNumber(point[2]) or nil
+                    if x and y then
+                        local displayX, displayY = ConvertMapPoint(sourceMapID, mapID, x, y)
+                        displayX, displayY = SafeNumber(displayX), SafeNumber(displayY)
+                        cached.points[#cached.points + 1] = {
+                            speciesID = speciesID,
+                            x = displayX or x,
+                            y = displayY or y,
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    self.nearbySpawnPointCache[mapID] = cached
+    return cached
+end
+
+function PetTracker:BuildNearbyPetIndexes()
+    if self.nearbySpeciesByCreatureID and self.nearbySpeciesByName and self.nearbyTrackedSpecies then
+        return
+    end
+
+    local byCreatureID, byName, trackedSpecies = {}, {}, {}
+    local trackerDB = ns.ATTPetTrackerDB
+    local maps = type(trackerDB) == "table" and trackerDB.maps or nil
+
+    for _, rows in pairs(type(maps) == "table" and maps or {}) do
+        if type(rows) == "table" then
+            for _, row in ipairs(rows) do
+                local speciesID = SafeNumber(row[1])
+                if speciesID and not trackedSpecies[speciesID] then
+                    trackedSpecies[speciesID] = true
+                    local species = GetSpeciesInfo(speciesID)
+                    AddSpeciesCandidate(byName, Lower(species.name), speciesID)
+                    AddSpeciesCandidate(byCreatureID, tonumber(species.companionID), speciesID)
+                end
+            end
+        end
+    end
+
+    self.nearbySpeciesByCreatureID = byCreatureID
+    self.nearbySpeciesByName = byName
+    self.nearbyTrackedSpecies = trackedSpecies
+end
+
+function PetTracker:GetNearbyMapSpeciesSet(mapID)
+    mapID = tonumber(mapID)
+    if not mapID then
+        return nil
+    end
+
+    self.nearbyMapSpecies = self.nearbyMapSpecies or {}
+    if self.nearbyMapSpecies[mapID] ~= nil then
+        return self.nearbyMapSpecies[mapID] or nil
+    end
+
+    local rows = GetMapRows(mapID)
+    if not rows then
+        self.nearbyMapSpecies[mapID] = false
+        return nil
+    end
+
+    local speciesSet = {}
+    for _, row in ipairs(rows) do
+        local speciesID = SafeNumber(row[1])
+        if speciesID then
+            speciesSet[speciesID] = true
+        end
+    end
+    self.nearbyMapSpecies[mapID] = speciesSet
+    return speciesSet
+end
+
+function PetTracker:ChooseNearbyMissingSpecies(candidates, mapID, allowOffMapFallback)
+    if type(candidates) ~= "table" then
+        return nil
+    end
+
+    local mapSpecies = self:GetNearbyMapSpeciesSet(mapID)
+    local fallbackSpeciesID
+    for _, speciesID in ipairs(candidates) do
+        if self:GetCollectionInfo(speciesID).count <= 0 then
+            if mapSpecies and mapSpecies[speciesID] then
+                return speciesID
+            end
+            if allowOffMapFallback then
+                fallbackSpeciesID = fallbackSpeciesID or speciesID
+            end
+        end
+    end
+    return fallbackSpeciesID
+end
+
+function PetTracker:GetSpeciesForCreatureID(creatureID, mapID, allowOffMapFallback)
+    creatureID = tonumber(creatureID)
+    if not creatureID then
+        return nil
+    end
+
+    self:BuildNearbyPetIndexes()
+    return self:ChooseNearbyMissingSpecies(self.nearbySpeciesByCreatureID[creatureID], mapID, allowOffMapFallback)
+end
+
+function PetTracker:GetSpeciesForName(name, mapID, allowOffMapFallback)
+    name = Lower(name)
+    if not name then
+        return nil
+    end
+
+    self:BuildNearbyPetIndexes()
+    return self:ChooseNearbyMissingSpecies(self.nearbySpeciesByName[name], mapID, allowOffMapFallback)
+end
+
+function PetTracker:GetNearbyPetFromNameplateText(text, mapID)
+    if not self:CanRunNearbyDetection() then
+        return nil
+    end
+
+    local speciesID = self:GetSpeciesForName(text, mapID, false)
+    if not speciesID then
+        return nil
+    end
+
+    return {
+        speciesID = speciesID,
+        mapID = mapID,
+        name = text,
+        source = "nameplateText",
+    }
+end
+
+function PetTracker:GetNearbyPetFromKnownSpawn()
+    if not self:CanRunNearbyDetection() then
+        return nil
+    end
+
+    local mapID = GetPlayerMapID()
+    local playerX, playerY = GetPlayerMapPosition(mapID)
+    if not playerX or not playerY then
+        return nil
+    end
+
+    local cache = self:GetNearbySpawnPointCache(mapID)
+    if not cache or not cache.points or #cache.points <= 0 then
+        return nil
+    end
+
+    local radius = GetNearbyDetectionRadius()
+    local radiusSquared = radius * radius
+    local bestSpeciesID, bestX, bestY, bestDistance
+    for _, point in ipairs(cache.points) do
+        local dx, dy = point.x - playerX, point.y - playerY
+        local distance = dx * dx + dy * dy
+        if distance <= radiusSquared and (not bestDistance or distance < bestDistance) then
+            bestSpeciesID, bestX, bestY, bestDistance = point.speciesID, point.x, point.y, distance
+        end
+    end
+
+    if not bestSpeciesID then
+        return nil
+    end
+
+    return {
+        speciesID = bestSpeciesID,
+        guid = string.format("spawn:%d:%d", mapID, bestSpeciesID),
+        mapID = mapID,
+        x = bestX,
+        y = bestY,
+        source = "knownSpawn",
+    }
+end
+
+function PetTracker:GetNearbyDebugLines()
+    local mapID = GetPlayerMapID()
+    local playerX, playerY = GetPlayerMapPosition(mapID)
+    local cache = self:GetNearbySpawnPointCache(mapID)
+    local rowCount = cache and cache.rowCount or 0
+    local rowSource = cache and cache.rowSource or nil
+    local sourceMapID = cache and cache.sourceMapID or nil
+    local densePoints = cache and cache.densePoints or 0
+    local nameplateCount, textCount, textMatches = 0, 0, 0
+
+    if C_NamePlate and type(C_NamePlate.GetNamePlates) == "function" then
+        local ok, plates = pcall(C_NamePlate.GetNamePlates)
+        if ok and type(plates) == "table" then
+            nameplateCount = #plates
+            for _, plate in ipairs(plates) do
+                local texts = {}
+                AddFrameText(plate, texts, 0)
+                textCount = textCount + #texts
+                for _, text in ipairs(texts) do
+                    if self:GetNearbyPetFromNameplateText(text, mapID) then
+                        textMatches = textMatches + 1
+                    end
+                end
+            end
+        end
+    end
+
+    local closestSpeciesID, closestDistance, closestX, closestY
+    if cache and cache.points and playerX and playerY then
+        for _, point in ipairs(cache.points) do
+            local dx, dy = point.x - playerX, point.y - playerY
+            local distance = math.sqrt(dx * dx + dy * dy)
+            if not closestDistance or distance < closestDistance then
+                closestSpeciesID, closestDistance, closestX, closestY = point.speciesID, distance, point.x, point.y
+            end
+        end
+    end
+
+    local closestName = closestSpeciesID and GetSpeciesInfo(closestSpeciesID).name or "none"
+    return {
+        string.format("Nearby debug | map=%s source=%s sourceMap=%s rows=%d densePoints=%d", tostring(mapID), tostring(rowSource or "none"), tostring(sourceMapID or "nil"), rowCount, tonumber(densePoints) or 0),
+        string.format("Nearby debug | player=%s,%s nameplates=%d texts=%d textMatches=%d", playerX and string.format("%.4f", playerX) or "nil", playerY and string.format("%.4f", playerY) or "nil", nameplateCount, textCount, textMatches),
+        string.format("Nearby debug | closestMissing=%s distance=%s at=%s,%s radius=%.4f ready=%s", tostring(closestName), closestDistance and string.format("%.4f", closestDistance) or "nil", closestX and string.format("%.4f", closestX) or "nil", closestY and string.format("%.4f", closestY) or "nil", GetNearbyDetectionRadius(), self:CanRunNearbyDetection() and "yes" or "no"),
+    }
+end
+
+function PetTracker:CreateNearbyAlert()
+    if self.nearbyAlert then return self.nearbyAlert end
+
+    local frame = CreateFrame("Button", "DXPetServicesNearbyPetAlert", UIParent, "BackdropTemplate")
+    frame:Hide()
+    frame:SetClampedToScreen(true)
+    frame:SetIgnoreParentScale(true)
+    frame:SetFrameStrata("DIALOG")
+    frame:SetFrameLevel(210)
+    frame:SetSize(210, 46)
+    RestoreNearbyAlertAnchor(frame)
+    frame:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 8,
+        insets = { left = 0, right = 0, top = 0, bottom = 0 },
+    })
+    frame:SetBackdropColor(0, 0, 0, 0)
+    frame:SetBackdropBorderColor(0, 0, 0, 0)
+    frame:EnableMouse(true)
+    frame:RegisterForClicks("AnyUp")
+    frame:SetMovable(true)
+    frame:SetUserPlaced(true)
+    frame:SetClampedToScreen(true)
+    frame:RegisterForDrag("LeftButton")
+
+    frame:SetScript("OnDragStart", function(alert)
+        if not InCombatLockdown() then
+            alert.nearbyDragging = true
+            alert:StartMoving()
+        end
+    end)
+    frame:SetScript("OnDragStop", function(alert)
+        if not InCombatLockdown() then
+            alert:StopMovingOrSizing()
+            alert.nearbyDragging = false
+            CaptureNearbyAlertAnchor(alert, true)
+        end
+    end)
+    frame:SetScript("OnEnter", function(alert)
+        alert:SetBackdropBorderColor(1, 0.86, 0.34, 0.55)
+    end)
+    frame:SetScript("OnLeave", function(alert)
+        alert:SetBackdropBorderColor(0, 0, 0, 0)
+    end)
+
+    local iconHolder, icon = CreateNearbyAlertIcon(frame)
+    iconHolder:SetPoint("LEFT", 4, 0)
+    frame.IconHolder = iconHolder
+    frame.Icon = icon
+
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", iconHolder, "TOPRIGHT", 7, -2)
+    title:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
+    title:SetJustifyH("LEFT")
+    title:SetTextColor(1, 0.82, 0.12, 1)
+    frame.Title = title
+
+    local found = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    found:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
+    found:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
+    found:SetJustifyH("LEFT")
+    found:SetText("Found Nearby!")
+    found:SetTextColor(0.92, 0.96, 1, 1)
+    frame.FoundText = found
+
+    frame:SetScript("OnClick", function(alert, button)
+        if button == "RightButton" then
+            alert:Hide()
+            return
+        end
+
+        local unit = alert.unit
+        if unit and UnitExists(unit) and type(TargetUnit) == "function" then pcall(TargetUnit, unit) end
+        PetTracker:SetPanelOpen(true)
+        PetTracker.selectedSpeciesID = alert.speciesID
+        PetTracker:RefreshPanel()
+    end)
+
+    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", 6, 6)
+    close:SetSize(14, 14)
+    close:SetScript("OnClick", function() frame:Hide() end)
+    close:Hide()
+    frame.CloseButton = close
+
+    frame:SetScript("OnHide", function(alert)
+        alert.unit = nil
+        alert.speciesID = nil
+        alert.nearbyDragging = nil
+        alert:SetScript("OnUpdate", nil)
+    end)
+
+    self.nearbyAlert = frame
+    return frame
+end
+
+function PetTracker:ShowNearbyAlert(speciesID, unit, guid, context)
+    local species = GetSpeciesInfo(speciesID)
+    local isSample = type(context) == "table" and context.sample == true
+    local frame = self:CreateNearbyAlert()
+    frame.speciesID, frame.unit = speciesID, unit
+    frame.Title:SetText(species.name or ("Species "..speciesID))
+    frame.Icon:SetTexture(species.icon or "Interface\\Icons\\INV_Box_PetCarrier_01")
+    frame.FoundText:SetText("Found Nearby!")
+    RestoreNearbyAlertAnchor(frame)
+    frame:Show()
+    frame:SetAlpha(1)
+    if not isSample and ns.db.settings.petTrackerNearbyAlertSound ~= false then
+        if SOUNDKIT and SOUNDKIT.RAID_WARNING then PlaySound(SOUNDKIT.RAID_WARNING, "Master") else PlaySound(8959, "Master") end
+    end
+    local token = (frame.token or 0) + 1
+    frame.token = token
+    local elapsed = 0
+    local introTime, holdTime, fadeTime, travel = GetNearbyFadeInTime(), isSample and 30 or 4.5, GetNearbyFadeOutTime(), 12
+    frame:SetScript("OnUpdate", function(alert, delta)
+        if alert.token ~= token then
+            alert:SetScript("OnUpdate", nil)
+            return
+        end
+
+        elapsed = elapsed + (delta or 0)
+        if not alert.nearbyDragging then
+            PositionNearbyAlert(alert, GetNearbyAlertYOffset(elapsed, introTime, holdTime, fadeTime, travel))
+        end
+
+        if elapsed <= holdTime then
+            alert:SetAlpha(1)
+        elseif fadeTime > 0 and elapsed < holdTime + fadeTime then
+            alert:SetAlpha(1 - ((elapsed - holdTime) / fadeTime))
+        else
+            if not alert.nearbyDragging then
+                PositionNearbyAlert(alert, 0)
+            end
+            alert:Hide()
+        end
+    end)
+end
+
+function PetTracker:GetSampleNearbySpeciesID()
+    local mapID = GetPlayerMapID()
+    local rows = GetMapRows(mapID)
+    if rows then
+        local fallbackSpeciesID
+        for _, row in ipairs(rows) do
+            local speciesID = SafeNumber(row[1])
+            if speciesID then
+                fallbackSpeciesID = fallbackSpeciesID or speciesID
+                if self:GetCollectionInfo(speciesID).count <= 0 then
+                    return speciesID
+                end
+            end
+        end
+        if fallbackSpeciesID then
+            return fallbackSpeciesID
+        end
+    end
+    return 467
+end
+
+function PetTracker:ShowSampleNearbyAlert()
+    self:ShowNearbyAlert(self:GetSampleNearbySpeciesID(), nil, "sample", { sample = true })
+end
+
+function PetTracker:HideSampleNearbyAlert()
+    if self.nearbyAlert then
+        self.nearbyAlert:Hide()
+    end
+end
+
+function PetTracker:AlertNearbyPet(context)
+    local settings = ns.db and ns.db.settings
+    if not settings or settings.petTrackerNearbyAlerts == false or not self:CanRunNearbyDetection() or type(context) ~= "table" or not context.speciesID then
+        return false
+    end
+    if self:GetCollectionInfo(context.speciesID).count > 0 then
+        return false
+    end
+
+    local guid = context.guid
+        or context.vignetteGUID
+        or (context.creatureID and ("creature:" .. tostring(context.creatureID)))
+        or ("species:" .. tostring(context.speciesID))
+    local now = GetTime()
+    if self.nearbyAlertSeen[guid] and now - self.nearbyAlertSeen[guid] < NEARBY_ALERT_COOLDOWN then
+        return false
+    end
+    self.nearbyAlertSeen[guid] = now
+    self:ShowNearbyAlert(context.speciesID, context.unit, guid, context)
+    return true
+end
+
+function PetTracker:GetNearbyPetFromUnit(unit, source)
+    local settings = ns.db and ns.db.settings
+    if not settings or settings.petTrackerNearbyAlerts == false or not self:CanRunNearbyDetection() or not unit or not UnitExists(unit) then
+        return nil
+    end
+    if UnitIsPlayer(unit) or UnitIsDead(unit) then
+        return nil
+    end
+    if IsRejectedBattlePetUnit(unit, source) then
+        return nil
+    end
+
+    local mapID = GetPlayerMapID()
+    local directSpeciesID = GetUnitBattlePetSpeciesID(unit)
+    local speciesID = directSpeciesID and self:ChooseNearbyMissingSpecies({ directSpeciesID }, mapID, true) or nil
+    local guid = ReadGUID(UnitGUID(unit))
+    local creatureID = CreatureIDFromUnit(unit)
+    local unitName = GetUnitNameSafe(unit)
+
+    if not speciesID then
+        speciesID = self:GetSpeciesForCreatureID(creatureID, mapID, false)
+    end
+    if not speciesID then
+        speciesID = self:GetSpeciesForName(unitName, mapID, false)
+    end
+    if not speciesID then
+        return nil
+    end
+
+    return {
+        speciesID = speciesID,
+        unit = unit,
+        guid = guid,
+        creatureID = creatureID,
+        mapID = mapID,
+        name = unitName,
+        source = source or unit,
+    }
+end
+
+function PetTracker:CheckNearbyUnit(unit, source)
+    return self:AlertNearbyPet(self:GetNearbyPetFromUnit(unit, source))
+end
+
+local function ReadVignettePosition(vignetteGUID, mapID)
+    if not C_VignetteInfo or type(C_VignetteInfo.GetVignettePosition) ~= "function" or not mapID then
+        return nil, nil, nil
+    end
+
+    local first, second, third = C_VignetteInfo.GetVignettePosition(vignetteGUID, mapID)
+    local positionMapID, x, y = mapID, nil, nil
+    if type(first) == "table" then
+        x, y = ReadVectorXY(first)
+    elseif type(second) == "table" then
+        positionMapID = SafeNumber(first) or mapID
+        x, y = ReadVectorXY(second)
+    elseif third ~= nil then
+        positionMapID = SafeNumber(first) or mapID
+        x, y = SafeNumber(second), SafeNumber(third)
+    else
+        x, y = SafeNumber(first), SafeNumber(second)
+    end
+
+    if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 then
+        return positionMapID, x, y
+    end
+    return nil, nil, nil
+end
+
+function PetTracker:GetNearbyPetFromVignette(vignetteGUID, vignetteInfo)
+    if not self:CanRunNearbyDetection() or not C_VignetteInfo or type(C_VignetteInfo.GetVignetteInfo) ~= "function" then
+        return nil
+    end
+
+    local info = vignetteInfo or C_VignetteInfo.GetVignetteInfo(vignetteGUID)
+    if type(info) ~= "table" or info.isDead then
+        return nil
+    end
+
+    local mapID = GetPlayerMapID()
+    local creatureID = ParseCreatureIDFromGUID(info.objectGUID) or ParseCreatureIDFromGUID(info.vignetteGUID)
+    local speciesID = self:GetSpeciesForCreatureID(creatureID, mapID, false)
+    if not speciesID then
+        speciesID = self:GetSpeciesForName(info.name, mapID, false)
+    end
+    if not speciesID then
+        return nil
+    end
+
+    local positionMapID, x, y = ReadVignettePosition(vignetteGUID, mapID)
+    return {
+        speciesID = speciesID,
+        vignetteGUID = vignetteGUID,
+        guid = ReadGUID(info.objectGUID),
+        creatureID = creatureID,
+        mapID = positionMapID or mapID,
+        x = x,
+        y = y,
+        name = info.name,
+        source = "vignette",
+    }
+end
+
+function PetTracker:CheckNearbyVignette(vignetteGUID, vignetteInfo)
+    return self:AlertNearbyPet(self:GetNearbyPetFromVignette(vignetteGUID, vignetteInfo))
+end
+
+function PetTracker:CheckNearbyNameplateText(plate, mapID)
+    local texts = {}
+    AddFrameText(plate, texts, 0)
+    for _, text in ipairs(texts) do
+        if self:AlertNearbyPet(self:GetNearbyPetFromNameplateText(text, mapID)) then
+            return true
+        end
+    end
+    return false
+end
+
+function PetTracker:OnNamePlateUnitAdded(_, unit)
+    if self:CheckNearbyUnit(unit, "nameplate") then
+        return
+    end
+
+    C_Timer.After(0.15, function()
+        if UnitExists(unit) then
+            self:CheckNearbyUnit(unit, "nameplate")
+        end
+    end)
+end
+function PetTracker:OnTargetChanged() self:CheckNearbyUnit("target", "target") end
+function PetTracker:OnFocusChanged() self:CheckNearbyUnit("focus", "focus") end
+
+function PetTracker:ScanVisibleNameplates()
+    local mapID = GetPlayerMapID()
+    for index = 1, NEARBY_NAMEPLATE_MAX do
+        local unit = "nameplate" .. index
+        if UnitExists(unit) then
+            self:CheckNearbyUnit(unit, "nameplate")
+        end
+    end
+
+    if not C_NamePlate or type(C_NamePlate.GetNamePlates) ~= "function" then return end
+    local ok, plates = pcall(C_NamePlate.GetNamePlates)
+    if not ok or type(plates) ~= "table" then return end
+    for _, plate in ipairs(plates) do
+        local unit = plate.namePlateUnitToken or (plate.UnitFrame and plate.UnitFrame.unit)
+        local alerted = unit and self:CheckNearbyUnit(unit, "nameplate")
+        if not alerted then
+            self:CheckNearbyNameplateText(plate, mapID)
+        end
+    end
+end
+
+function PetTracker:ScanNearbyUnitTokens()
+    for _, unit in ipairs(NEARBY_UNIT_TOKENS) do
+        self:CheckNearbyUnit(unit, unit)
+    end
+    for index = 1, 5 do
+        self:CheckNearbyUnit("boss" .. index, "boss")
+    end
+end
+
+function PetTracker:ScanNearbyVignettes(worldMapOnly)
+    if not C_VignetteInfo or type(C_VignetteInfo.GetVignettes) ~= "function" then return end
+    for _, vignetteGUID in ipairs(C_VignetteInfo.GetVignettes() or {}) do
+        local info = C_VignetteInfo.GetVignetteInfo(vignetteGUID)
+        if type(info) == "table" and ((worldMapOnly and info.onWorldMap) or (not worldMapOnly and (info.onWorldMap or info.onMinimap))) then
+            self:CheckNearbyVignette(vignetteGUID, info)
+        end
+    end
+end
+
+function PetTracker:ScanNearbyPets()
+    if not self:CanRunNearbyDetection() then
+        return
+    end
+
+    self:ScanVisibleNameplates()
+    self:ScanNearbyUnitTokens()
+    self:ScanNearbyVignettes(false)
+    self:AlertNearbyPet(self:GetNearbyPetFromKnownSpawn())
+end
+
+function PetTracker:ScanNearbyPassivePets()
+    if not self:CanRunNearbyDetection() then
+        return
+    end
+
+    self:ScanVisibleNameplates()
+    self:AlertNearbyPet(self:GetNearbyPetFromKnownSpawn())
+end
+
+function PetTracker:OnVignetteMinimapUpdated(_, vignetteGUID)
+    if not C_VignetteInfo or type(C_VignetteInfo.GetVignetteInfo) ~= "function" then return end
+    local info = C_VignetteInfo.GetVignetteInfo(vignetteGUID)
+    if type(info) == "table" then
+        self:CheckNearbyVignette(vignetteGUID, info)
+    end
+end
+
+function PetTracker:OnVignettesUpdated()
+    local now = GetTime()
+    if self.nextNearbyVignetteScan and now < self.nextNearbyVignetteScan then
+        return
+    end
+    self.nextNearbyVignetteScan = now + NEARBY_VIGNETTE_SCAN_COOLDOWN
+    self:ScanNearbyVignettes(true)
+end
+
+function PetTracker:OnModifierChanged(_, key)
+    if key == "LSHIFT" or key == "RSHIFT" then self:RefreshWorldMap() end
+end
+
+function PetTracker:StartNearbyPassiveScanner()
+    if self.nearbyPassiveTicker or not C_Timer or type(C_Timer.NewTicker) ~= "function" then
+        return
+    end
+
+    self.nearbyPassiveTicker = C_Timer.NewTicker(NEARBY_PASSIVE_SCAN_INTERVAL, function()
+        self:ScanNearbyPassivePets()
+    end)
+end
+
+function PetTracker:StopNearbyPassiveScanner()
+    if self.nearbyPassiveTicker and self.nearbyPassiveTicker.Cancel then
+        self.nearbyPassiveTicker:Cancel()
+    end
+    self.nearbyPassiveTicker = nil
+end
+
 -- Module lifecycle
 
 function PetTracker:OnInitialize()
@@ -2583,6 +3613,12 @@ function PetTracker:OnInitialize()
     ns.Events:Register("ZONE_CHANGED_NEW_AREA", self, "OnZoneChanged")
     ns.Events:Register("ZONE_CHANGED", self, "OnZoneChanged")
     ns.Events:Register("PLAYER_ENTERING_WORLD", self, "OnZoneChanged")
+    ns.Events:Register("NAME_PLATE_UNIT_ADDED", self, "OnNamePlateUnitAdded")
+    ns.Events:Register("PLAYER_TARGET_CHANGED", self, "OnTargetChanged")
+    ns.Events:Register("PLAYER_FOCUS_CHANGED", self, "OnFocusChanged")
+    ns.Events:Register("VIGNETTE_MINIMAP_UPDATED", self, "OnVignetteMinimapUpdated")
+    ns.Events:Register("VIGNETTES_UPDATED", self, "OnVignettesUpdated")
+    ns.Events:Register("MODIFIER_STATE_CHANGED", self, "OnModifierChanged")
 end
 
 function PetTracker:OnEnable()
@@ -2590,6 +3626,9 @@ function PetTracker:OnEnable()
     self:TryRegisterWorldMap()
     self:CreateObjectiveTrackerUI()
     self:RefreshObjectiveTracker()
+    self:ResetNearbyStartupDelay()
+    self:StartNearbyPassiveScanner()
+    C_Timer.After(0.5, function() self:ScanNearbyPets() end)
 end
 
 function PetTracker:OnAddonLoaded(_, loadedAddon)
@@ -2603,13 +3642,20 @@ function PetTracker:OnAddonLoaded(_, loadedAddon)
 end
 
 function PetTracker:OnZoneChanged()
+    self.creatureSpecies = {}
+    self.nearbyMapSpecies = {}
+    self.nearbySpawnPointCache = {}
+    self.nextNearbyVignetteScan = nil
     C_Timer.After(0.15, function()
         self:RefreshObjectiveTracker()
+        self:ScanNearbyPets()
     end)
 end
 
 function PetTracker:OnCollectionChanged()
     self.collectionDirty = true
+    self.nearbyCollectionVersion = (self.nearbyCollectionVersion or 0) + 1
+    self.nearbySpawnPointCache = {}
     self.refreshToken = self.refreshToken + 1
     local token = self.refreshToken
     C_Timer.After(0.15, function()
@@ -2623,6 +3669,13 @@ function PetTracker:OnCollectionChanged()
 end
 
 function PetTracker:RefreshSettings()
+    if ns.db.settings.petTrackerNearbyAlerts == false then
+        if self.nearbyAlert then self.nearbyAlert:Hide() end
+        self:StopNearbyPassiveScanner()
+    else
+        self:StartNearbyPassiveScanner()
+        self:ScanNearbyPets()
+    end
     if self.panelOpen and self.panel then
         self:RefreshPanel()
     end

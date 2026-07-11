@@ -22,6 +22,8 @@ local TOGGLE_KEYS = {
     "petTrackerMapIcons",
     "petTrackerHideCapturedPins",
     "petTrackerOnlyWhenPanelOpen",
+    "petTrackerNearbyAlerts",
+    "petTrackerNearbyAlertSound",
     "petTrackerObjectiveTracker",
     "dungeonTooltipInfo",
 }
@@ -68,6 +70,112 @@ function SettingsUI:CreateCheckbox(parent, key, title, description, y)
 
     self.controls[key] = check
     return y - 56
+end
+
+
+function SettingsUI:CreateDropdown(parent, key, title, description, options, y)
+    local label = CreateLabel(parent, title, "GameFontNormal")
+    label:SetPoint("TOPLEFT", 22, y)
+
+    local dropdown = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
+    dropdown:SetPoint("TOPLEFT", label, "BOTTOMLEFT", -2, -5)
+    dropdown:SetWidth(230)
+    dropdown:SetupMenu(function(_, rootDescription)
+        for _, option in ipairs(options) do
+            rootDescription:CreateRadio(option.text, function()
+                return ns.db.settings[key] == option.value
+            end, function()
+                SetSetting(key, option.value)
+                dropdown:SetDefaultText(option.text)
+            end)
+        end
+    end)
+
+    local desc = CreateLabel(parent, description, "GameFontHighlightSmall")
+    desc:SetPoint("TOPLEFT", dropdown, "BOTTOMLEFT", 4, -4)
+    desc:SetPoint("RIGHT", parent, "RIGHT", -24, 0)
+    desc:SetTextColor(0.72, 0.72, 0.72)
+    desc:SetWordWrap(true)
+
+    dropdown.RefreshValue = function(control)
+        local value = ns.db.settings[key]
+        for _, option in ipairs(options) do
+            if option.value == value then
+                control:SetDefaultText(option.text)
+                return
+            end
+        end
+    end
+    self.controls[key] = dropdown
+    return y - 82
+end
+
+local function FormatSliderValue(value, step, suffix)
+    suffix = suffix or "%"
+    if step < 1 then
+        return string.format("%.1f%s", value, suffix)
+    end
+    return tostring(math.floor(value + 0.5)) .. suffix
+end
+
+function SettingsUI:CreateSlider(parent, key, title, description, minValue, maxValue, step, y, suffix)
+    local label = CreateLabel(parent, title, "GameFontNormal")
+    label:SetPoint("TOPLEFT", 22, y)
+
+    local slider = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
+    slider:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 2, -8)
+    slider:SetWidth(250)
+    slider:SetMinMaxValues(minValue, maxValue)
+    slider:SetValueStep(step)
+    slider:SetObeyStepOnDrag(true)
+    if slider.Low then slider.Low:SetText(FormatSliderValue(minValue, step, suffix)) end
+    if slider.High then slider.High:SetText(FormatSliderValue(maxValue, step, suffix)) end
+
+    local valueText = CreateLabel(parent, "", "GameFontHighlightSmall")
+    valueText:SetPoint("LEFT", slider, "RIGHT", 12, 0)
+    slider.ValueText = valueText
+    slider.FormatValue = function(value)
+        return FormatSliderValue(value, step, suffix)
+    end
+
+    local desc = CreateLabel(parent, description, "GameFontHighlightSmall")
+    desc:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", -2, -8)
+    desc:SetPoint("RIGHT", parent, "RIGHT", -24, 0)
+    desc:SetTextColor(0.72, 0.72, 0.72)
+    desc:SetWordWrap(true)
+
+    slider:SetScript("OnValueChanged", function(control, value)
+        value = math.floor((value / step) + 0.5) * step
+        control.ValueText:SetText(control.FormatValue(value))
+        if control._refreshing then return end
+        ns.db.settings[key] = value
+        ns:GetModule("PetTracker"):RefreshSettings()
+    end)
+    slider:SetScript("OnMouseUp", function(control)
+        local value = math.floor((control:GetValue() / step) + 0.5) * step
+        SetSetting(key, value)
+    end)
+    self.controls[key] = slider
+    return y - 80
+end
+
+function SettingsUI:CreateButton(parent, title, description, buttonText, onClick, y)
+    local label = CreateLabel(parent, title, "GameFontNormal")
+    label:SetPoint("TOPLEFT", 22, y)
+
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetSize(150, 24)
+    button:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -6)
+    button:SetText(buttonText)
+    button:SetScript("OnClick", onClick)
+
+    local desc = CreateLabel(parent, description, "GameFontHighlightSmall")
+    desc:SetPoint("LEFT", button, "RIGHT", 12, 0)
+    desc:SetPoint("RIGHT", parent, "RIGHT", -24, 0)
+    desc:SetTextColor(0.72, 0.72, 0.72)
+    desc:SetWordWrap(true)
+
+    return y - 58
 end
 
 function SettingsUI:CreateDefaultViewRadios(parent, y)
@@ -152,6 +260,25 @@ function SettingsUI:BuildPanel()
     y = self:CreateCheckbox(content, "petTrackerMapIcons", "Pet Tracker Map Icons", "Show circular wild-pet species icons on zone maps. Known spawn data is drawn at every bundled location.", y)
     y = self:CreateCheckbox(content, "petTrackerHideCapturedPins", "Hide Captured Pet Locations", "Remove a species' Pet Tracker portraits from the world map after you have captured at least one of that pet. Enabled by default.", y)
     y = self:CreateCheckbox(content, "petTrackerOnlyWhenPanelOpen", "Only Show Pet Icons While Tracker Is Open", "Only draw wild-pet portraits while the Pet Tracker side tab is the active world-map panel.", y)
+    y = self:CreateDropdown(content, "petTrackerPinMode", "Pet Portrait Display", "Choose every saved location, merge nearby locations, or show one portrait per species. Hold Shift on the map to temporarily show every hidden location.", {
+        { value = "ALL", text = "Every Location" },
+        { value = "CLUSTER", text = "Cluster Nearby Locations" },
+        { value = "SPECIES", text = "One Portrait per Species" },
+    }, y)
+    y = self:CreateSlider(content, "petTrackerPinSize", "Pet Portrait Size", "Adjust the size of Pet Tracker portraits on the world map.", 60, 160, 10, y)
+    y = self:CreateSlider(content, "petTrackerPinOpacity", "Pet Portrait Opacity", "Adjust the opacity of Pet Tracker portraits on the world map.", 25, 100, 5, y)
+    y = self:CreateCheckbox(content, "petTrackerNearbyAlerts", "Nearby Uncollected Pet Alerts", "Play an alert when an uncollected wild pet is detected nearby through nameplates, target, focus, minimap/world-map signals, or known spawn proximity. Enabled by default.", y)
+    y = self:CreateCheckbox(content, "petTrackerNearbyAlertSound", "Nearby Alert Sound", "Play a sound when the nearby uncollected-pet alert appears.", y)
+    y = self:CreateButton(content, "Nearby Alert Preview", "Shows a sample pet alert so you can drag it into position.", "Show Sample Alert", function()
+        ns:GetModule("PetTracker"):ShowSampleNearbyAlert()
+    end, y)
+    y = self:CreateButton(content, "Hide Nearby Alert Preview", "Hides the sample pet alert after you are done positioning it.", "Hide Sample Alert", function()
+        ns:GetModule("PetTracker"):HideSampleNearbyAlert()
+    end, y)
+    y = self:CreateSlider(content, "petTrackerNearbyFadeInTime", "Nearby Alert Fade In", "Adjust how quickly the nearby pet alert slides/fades in.", 0, 2, 0.1, y, "s")
+    y = self:CreateSlider(content, "petTrackerNearbyFadeOutTime", "Nearby Alert Fade Out", "Adjust how quickly the nearby pet alert fades out.", 0.2, 5, 0.1, y, "s")
+    y = self:CreateSlider(content, "petTrackerNearbyDetectionRadius", "Nearby Detection Radius", "Adjust how close you need to be to a known wild-pet spawn before the alert can fire.", 0.5, 8, 0.5, y, "%")
+    y = self:CreateSlider(content, "petTrackerNearbyStartupDelay", "Nearby Startup Delay", "Wait this many seconds after login or reload before nearby alerts can fire.", 0, 30, 1, y, "s")
     y = self:CreateCheckbox(content, "petTrackerObjectiveTracker", "Objective Tracker Pet List", "Attach the current zone's wild-pet progress and upgrade list to the objective tracker.", y)
     y = self:CreateCheckbox(content, "dungeonTooltipInfo", "Dungeon Tooltip Pet Info", "Append a Battle Pets section to dungeon and raid icon tooltips on the world map.", y)
 
@@ -185,6 +312,18 @@ function SettingsUI:RefreshControls()
 
     for _, key in ipairs(TOGGLE_KEYS) do
         self.controls[key]:SetChecked(settings[key] ~= false)
+    end
+    if self.controls.petTrackerPinMode and self.controls.petTrackerPinMode.RefreshValue then
+        self.controls.petTrackerPinMode:RefreshValue()
+    end
+    for _, key in ipairs({ "petTrackerPinSize", "petTrackerPinOpacity", "petTrackerNearbyFadeInTime", "petTrackerNearbyFadeOutTime", "petTrackerNearbyDetectionRadius", "petTrackerNearbyStartupDelay" }) do
+        local slider = self.controls[key]
+        if slider then
+            slider._refreshing = true
+            slider:SetValue(settings[key])
+            slider.ValueText:SetText(slider.FormatValue(settings[key]))
+            slider._refreshing = false
+        end
     end
 end
 
