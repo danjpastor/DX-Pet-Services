@@ -2896,16 +2896,7 @@ local function CreateNearbyAlertIcon(parent)
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     DisablePixelSnapping(icon)
 
-    local shine = holder:CreateTexture(nil, "OVERLAY")
-    shine:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-    shine:SetBlendMode("ADD")
-    shine:SetAlpha(0.22)
-    shine:SetPoint("TOPLEFT", -6, 6)
-    shine:SetPoint("BOTTOMRIGHT", 6, -6)
-    shine:SetVertexColor(1, 0.82, 0.18, 1)
-
     holder.Icon = icon
-    holder.Shine = shine
     return holder, icon
 end
 
