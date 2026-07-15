@@ -44,10 +44,6 @@ local function DebugPrint(...)
 end
 
 local function IsSecretValue(value)
-    if value == nil then
-        return false
-    end
-
     if type(issecretvalue) == "function" then
         local ok, result = pcall(issecretvalue, value)
         if ok and result then
@@ -66,17 +62,14 @@ local function IsSecretValue(value)
 end
 
 local function SafeString(value)
-    if value == nil or IsSecretValue(value) then
-        return nil
-    end
-    if type(value) ~= "string" then
+    if IsSecretValue(value) or type(value) ~= "string" then
         return nil
     end
     return value
 end
 
 local function SafeNumber(value)
-    if value == nil or IsSecretValue(value) or type(value) ~= "number" then
+    if IsSecretValue(value) or type(value) ~= "number" then
         return nil
     end
     return value

@@ -2,7 +2,7 @@
 ## Title: DX Pet Services
 ## Notes: Companion pet collection tools, Pet Tracker, source tracking, map integration, Collector Mode, favorites, Auto Summon, and legacy battle-pet details.
 ## Author: DX
-## Version: 0.5.5
+## Version: 0.5.14
 ## SavedVariables: DXPetServicesDB
 ## SavedVariablesPerCharacter: DXPetServicesCharDB
 ## IconTexture: Interface\Icons\INV_Box_PetCarrier_01

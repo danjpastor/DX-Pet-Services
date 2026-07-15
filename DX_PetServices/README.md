@@ -105,3 +105,7 @@ These settings are account-wide.
 ## Development
 
 See `DEVELOPING.md` for module ownership, load order, Pet Tracker layout controls, safe editing notes, and the release checklist.
+
+## Nearby Wild-Pet Scanner
+
+The nearby alert uses a RareScanner-style event model adapted to wild battle pets. It listens for nameplates, mouseover/target/focus units, and vignettes, then matches exact unit names or creature IDs against the current zone's wild-pet roster. It does not scan arbitrary UI frames or alert from saved spawn coordinates. Alerts are shown only for uncollected species and include **Must be capturable** because WoW can delay capture-state data until mouseover or target. Use `/dxpets nearbydebug` to inspect the active zone roster and matching unit tokens.

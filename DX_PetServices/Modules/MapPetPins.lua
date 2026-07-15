@@ -20,9 +20,6 @@ local BLUE_R, BLUE_G, BLUE_B = 0.35, 0.75, 1.0
 -- Shared helpers
 
 local function IsSecretValue(value)
-    if value == nil then
-        return false
-    end
     if type(issecretvalue) == "function" then
         local ok, result = pcall(issecretvalue, value)
         if ok and result then
@@ -39,7 +36,7 @@ local function IsSecretValue(value)
 end
 
 local function SafeNumber(value)
-    if type(value) ~= "number" or IsSecretValue(value) then
+    if IsSecretValue(value) or type(value) ~= "number" then
         return nil
     end
     return value

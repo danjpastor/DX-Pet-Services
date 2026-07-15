@@ -190,12 +190,8 @@ SlashCmdList.DXPETS = function(message)
 
     if message == "nearbydebug" or message == "nearby debug" then
         local tracker = ns:GetModule("PetTracker")
-        if tracker and tracker.GetNearbyDebugLines then
-            for _, line in ipairs(tracker:GetNearbyDebugLines()) do
-                ns:Print(line)
-            end
-        else
-            ns:Print("Nearby debug is not available.")
+        if tracker and type(tracker.PrintNearbyDebug) == "function" then
+            tracker:PrintNearbyDebug()
         end
         return
     end

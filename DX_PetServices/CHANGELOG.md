@@ -1,13 +1,46 @@
+# 0.5.14 — Secret-Value Crash Fix
+
+- Fixed the 12.x `secret string value` crash caused by comparing a value before calling `issecretvalue`.
+- Added secret-safe wrappers for `UnitExists`, name/GUID reads, vignette reads, event diagnostics, nameplate token inspection, map pins, and NPC indicators.
+- Nearby detection no longer reads or recursively compares nameplate font strings; it uses only unit tokens, GUID/species data, and vignette records.
+- `/dxpets nearbydebug` now begins with `0.5.14 secret-safe-event-units legacyTextScan=false` so the loaded detector can be verified immediately.
+- Retains the RareScanner source-matched event model from 0.5.13.
+
+# 0.5.13 — RareScanner Source-Matched Wild-Pet Detector
+
+- Reimplemented nearby detection after inspecting RareScanner 12.0.7.3 directly.
+- Matches RareScanner's live signal path: `VIGNETTE_MINIMAP_UPDATED`, `VIGNETTES_UPDATED`, `NAME_PLATE_UNIT_ADDED`, `UPDATE_MOUSEOVER_UNIT`, and `PLAYER_TARGET_CHANGED`.
+- Removed the one-second recurring nameplate/unit poll. Normal detection is now event-driven, with one startup/zone-change sweep for already-existing signals.
+- Builds a global supported-NPC index for all bundled wild species using their creature IDs, rather than requiring the creature to be resolved from the current-zone name list first.
+- Keeps exact current-zone name matching only as a fallback when WoW withholds the unit GUID or species ID.
+- Added **Enable Required Pet Nameplates**, enabled by default. It turns on the nameplate CVars required for RareScanner-style detection of entities without vignettes.
+- `/dxpets nearbydebug` now reports the required CVar state, RareScanner-style event counts, last received signal, global wild-species count, and creature-ID index size.
+- Retains uncollected-only alerts, companion/player-pet rejection, alert throttling, sound, model display, and the `Must be capturable` caveat.
+
+# 0.5.12 — RareScanner Detection Reset for Wild Pets
+
+- Rebuilt nearby wild-pet detection from the clean 0.5.5 package rather than continuing the experimental 0.5.6–0.5.11 proximity branches.
+- Uses the same practical detection surfaces as RareScanner: `VIGNETTE_ADDED`/vignette updates, `NAME_PLATE_UNIT_ADDED`, mouseover, target/focus, and a lightweight nameplate-unit safety pass.
+- Builds an exact-name and creature-ID index from the current zone's wild-pet roster, inheriting the first parent zone with pet data for towns, caves, and micro-zones.
+- Nameplate units now resolve by exact current-zone species name even when WoW returns no `UnitBattlePetSpeciesID`, wild-pet flag, capturable tooltip text, or minimap-vignette record.
+- Rejects player-controlled and companion-pet units before using the zone-name fallback.
+- Keeps the alert limited to uncollected species and displays the caveat `Must be capturable` because capture eligibility may not be exposed until the unit is targeted or moused over.
+- Removed minimap-tooltip detection, minimap-paw inference, spawn-coordinate proximity, recursive nameplate-region inspection, and every `EnumerateFrames()` path.
+- Automatic scanning now checks only real unit tokens and up to 40 nameplate tokens once per second; event callbacks remain the primary detection path.
+- `/dxpets nearbydebug` now reports the current zone roster, exact name/creature matches, resolved species, rejection state, and the last successful alert.
+
 # 0.5.5
 
 - Added Pet Tracker portrait display modes: every location, clustered nearby locations, and one portrait per species.
 - Added map portrait size and opacity controls.
 - Holding Shift temporarily reveals every saved location.
-- Added nearby uncollected wild-pet alerts using nameplate, target, focus, minimap/world-map signal, and known-spawn proximity detection.
-- Cached pet-name and pet-creature lookup tables so nearby alerts react to Blizzard events without per-frame scanning.
-- Cached missing spawn points per map/collection state so proximity checks avoid repeated dense-location decoding.
-- Added a movable sample alert preview plus fade-in, fade-out, detection-radius, and startup-delay settings.
-- Alerts show the pet icon, pet name, and Found Nearby message, play an optional sound, and fade away after appearing.
+- Added nearby uncollected wild-pet alerts using the same event shape as RareScanner: nameplate, mouseover/target/focus, and minimap/world-map vignette signals.
+- Alerts now require the detected unit/vignette/nameplate signal to be marked capturable by WoW tooltip or capturable pet-marker data before alerting.
+- Added a visible nameplate-frame fallback for capturable wild pets that WoW draws on screen but does not expose as `nameplate#` units until mouseover.
+- Removed automatic alerting from known spawn coordinates; spawn proximity remains visible in `/dxpets nearbydebug` only because coordinates do not prove a capturable pet is actually present.
+- Nearby alert clicks no longer force the Pet Tracker side panel open, avoiding the compressed quest-log map layout after scanner-style alerts.
+- Added `/dxpets nearbydebug` to print the nearby unit, nameplate, vignette, tooltip-capturable, and debug-only spawn data WoW is exposing while testing alerts.
+- Restyled the nearby pet popup as a compact RareScanner-like parchment alert button with the 3D pet model floating above it.
 
 ## 0.5.4 — Pet Tracker Map Visibility Options
 
